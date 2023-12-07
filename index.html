@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>IPv4 and IPv6 Address Calculator</title>
+	<script>
+	  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+	  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+	  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+	  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+	  ga('create', 'UA-36123981-3', 'bitbucket.org');
+	  ga('send', 'pageview');
+
+	</script>
+	<script type="text/javascript" src="ipaddress.js"></script>
+	<script type="text/javascript" src="jquery-2.0.0.min.js"></script>
+	<script type="text/javascript">
+		$(document).ready(function() {
+			var ip = null;
+			function updateFields() {
+				$('input[name="ip-mask"]').val(ip.binaryMask().address());
+
+				$('input[name="ip-range-begin"]').val(ip.rangeMin().address());
+				$('input[name="ip-range-end"]').val(ip.rangeMax().address());
+
+				if (ip instanceof IPv6Address)
+					$('input[name="ip-contains"]').val(ip.embeddedMacAddress());
+				else
+					$('input[name="ip-contains"]').val('');
+
+				updateTags();
+			}
+			function try4(val) {
+				try {
+					ip = new IPv4Address(val);
+					return true;
+				} catch (e) {
+					return false;
+				}
+			}
+			function try6(val) {
+				try {
+					ip = new IPv6Address(val);
+					return true;
+				} catch (e) {
+					return false;
+				}
+			}
+
+			function runUpdate() {
+				var ipfield = $('input[name="ip-address"]');
+				var val = ipfield.val();
+				if (try4(val) || try6(val)) {
+					ipfield.removeClass('error');
+					$('input[name="ip-mask"]').removeClass('error');
+					updateFields();
+				} else {
+					ipfield.addClass('error');
+				}
+			}
+
+			$('input[name="ip-address"]').on('keyup', function() {
+				runUpdate();
+			}).on('blur', function() {
+				if ($(this).hasClass('error') || ip == null)
+					return;
+				$(this).val(ip.cidr());
+			});
+
+			$('input[name="ip-mask"]').on('keyup', function() {
+				if (try4(ip.address() + '/' + $(this).val())) {
+					$(this).removeClass('error');
+					updateFields();
+					$('input[name="ip-address"]').val(ip.cidr());
+				} else {
+					$(this).addClass('error');
+				}
+			});
+
+			$('input[name="6rd-domain"]').add('input[name="6rd-v4"]').on('keyup', function() {
+				var v4 = $('input[name="6rd-v4"]').val();
+				var v6 = $('input[name="6rd-domain"]').val();
+				try {
+					ip = calc6rd(v6, v4);
+				} catch (e) {
+					return;
+				}
+				updateFields();
+				$('input[name="ip-address"]').val(ip.cidr());
+			});
+
+			$('input.ip').each(function() {
+				var self = this;
+
+				$(this).on('keyup', function() {
+					var ip = null;
+					var val = $(this).val();
+					function tryV(obj, val) {
+						try {
+							ip = new obj(val);
+							return true;
+						} catch (e) {
+							return false;
+						}
+					}
+					if (tryV(IPv4Address, val) || tryV(IPv6Address, val)) {
+						$(self).removeClass('error');
+					} else {
+						$(self).addClass('error');
+					}				
+				});
+			});
+
+			var tagMap = [
+				{ type: 4, name: 'link-local', ip: '169.254.0.0/16' },
+				{ type: 4, name: 'rfc-1918 private-scope', ip: '10.0.0.0/8' },
+				{ type: 4, name: 'rfc-1918 private-scope', ip: '172.16.0.0/12' },
+				{ type: 4, name: 'rfc-1918 private-scope', ip: '192.168.0.0/16' },
+				{ type: 4, name: 'cgn private-scope', ip: '100.64.0.0/10' },
+				{ type: 4, name: 'multicast', ip: '224.0.0.0/4' },
+				{ type: 4, name: 'class-e', ip: '240.0.0.0/4' },
+
+				{ type: 6, name: '6to4', ip: '2002::/16' },
+				{ type: 6, name: 'link-local', ip: 'fe80::/64' },
+				{ type: 6, name: 'global-scope', ip: '2000::/3' },
+				{ type: 6, name: 'unique-local private-scope', ip: 'fc00::/7' },
+				{ type: 6, name: 'teredo', ip: '2001::/32' },
+				{ type: 6, name: 'multicast', ip: 'ff00::/8' },
+			];
+			function updateTags() {
+				$('ul.tags li').removeClass('active');
+				var version = 0;
+
+				if (ip instanceof IPv4Address) {
+					$('.IPv4').addClass('active');
+					version = 4;
+				}
+
+				if (ip instanceof IPv6Address) {
+					$('.IPv6').addClass('active');
+					version = 6;
+				}
+
+				for (var i in tagMap) {
+					if (tagMap[i].type == version) {
+						if (tagMap[i].ip.subnetContains(ip)) {
+							var tags = tagMap[i].name;
+							for (var j in tags) {
+								$('.'+tags[j]).addClass('active');
+							}
+						}
+					}
+				}
+
+				/* special case for v4 global scope */
+				if (version == 4 && $('ul.tags li.active').not('.IPv4').size() == 0) {
+					$('.global-scope').addClass('active');
+				}
+			}
+			$('ul.tags li').each(function() {
+				$(this).addClass($(this).text().replace(' ', '-'));
+				$(this).data('addresses', []);
+				$(this).click(function() {
+					var addresses = $(this).data('addresses');
+					if (addresses.length == 0)
+						return;
+					$('input[name="ip-address"]').val(addresses[0].cidr());
+					addresses.push(addresses.shift());
+					runUpdate();
+				});
+			});
+			for (var i in tagMap) {
+				if (tagMap[i].type == 4)
+					tagMap[i].ip = new IPv4Address(tagMap[i].ip);
+				else if (tagMap[i].type == 6)
+					tagMap[i].ip = new IPv6Address(tagMap[i].ip);
+				tagMap[i].name = tagMap[i].name.split(' ');
+				var tags = tagMap[i].name;
+
+				for (var j in tags) {
+					var addresses = $('.'+tags[j]).data('addresses');
+					addresses.push(tagMap[i].ip);
+				}
+			}
+		});
+	</script>
+	<style>
+		html {
+			height: 100%;
+		}
+		body {
+			background: #b5bdc8; /* Old browsers */
+			background: -moz-linear-gradient(top, #b5bdc8 0%, #828c95 36%, #28343b 100%); /* FF3.6+ */
+			background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#b5bdc8), color-stop(36%,#828c95), color-stop(100%,#28343b)); /* Chrome,Safari4+ */
+			background: -webkit-linear-gradient(top, #b5bdc8 0%,#828c95 36%,#28343b 100%); /* Chrome10+,Safari5.1+ */
+			background: -o-linear-gradient(top, #b5bdc8 0%,#828c95 36%,#28343b 100%); /* Opera 11.10+ */
+			background: -ms-linear-gradient(top, #b5bdc8 0%,#828c95 36%,#28343b 100%); /* IE10+ */
+			background: linear-gradient(to bottom, #b5bdc8 0%,#828c95 36%,#28343b 100%); /* W3C */
+			filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#b5bdc8', endColorstr='#28343b',GradientType=0 ); /* IE6-9 */
+
+			font-family: sans-serif;
+			padding: 20px;
+		}
+
+		form {
+			margin: 20px auto;
+			padding: 15px;
+			width: 558px;
+			background-color: white;
+			border-radius: 15px;
+			box-shadow:  0px 0px 10px 5px rgba(0, 0, 0, .5);
+		}
+
+		input.error {
+			background-color: #ffaeae;
+		}
+
+		input[type="text"] {
+			font-family: "Lucida Console", Monaco, monospace;
+			font-size:1.3em;
+			padding: 3px;
+			width: 550px;
+			border: #ddd solid 1px;
+		}
+		input[type="text"]:focus {
+			outline: none;
+			box-shadow: inset 0px 0px 8px 0px rgba(0, 0, 0, .25);
+		}
+
+		h1 {
+			text-align: center;
+		}
+
+		h2 {
+			margin-top: 10px;
+			margin-bottom: 5px;
+			font-size: 1em;
+			font-weight: normal;
+		}
+
+		ul.tags {
+			list-style: none;
+			padding: 0;
+			margin: 0;
+		}
+		ul.tags li {
+			display: inline-block;
+			background: #ccc;
+			border-radius: 3px;
+			padding: 2px;
+			margin-right: 1px;
+			font-size: 10px;
+		}
+		ul.tags li.active {
+			background-color: #a5afff;
+		}
+	</style>
+</head>
+<body>
+	<h1>IPv4 and IPv6 Address Calculator</h1>
+	<form>
+		<div>
+			<h2>Address:</h2>
+			<input type="text" name="ip-address" placeholder="v4 or v6 address" />
+		</div>
+		<ul class="tags">
+			<li>IPv4</li>
+			<li>IPv6</li>
+			<li>link local</li>
+			<li>global scope</li>
+			<li>private scope</li>
+			<li>rfc 1918</li>
+			<li>unique local</li>
+			<li>6to4</li>
+			<li>teredo</li>
+			<li>cgn</li>
+			<li>multicast</li>
+			<li>class e</li>
+		</ul>
+		<div>
+			<h2>Mask:</h2>
+			<input type="text" name="ip-mask" />
+		</div>
+		<div>
+			<h2>Subnet range:</h2>
+			<input type="text" name="ip-range-begin" />
+			<input type="text" name="ip-range-end" />
+		</div>
+		<div>
+			<h2>Mac:</h2>
+			<input type="text" name="ip-contains" />
+		</div>
+		<div>
+			<h2>6rd:</h2>
+			<h2>6rd domain:</h2>
+			<input type="text" class="ip" name="6rd-domain" placeholder="example: 2003:d025::/32"/>
+			<h2>6rd v4 endpoint:</h2>
+			<input type="text" class="ip" name="6rd-v4" placeholder="example: 172.31.0.1/24"/>
+		</div>
+	</form>
+</body>
+</html>
